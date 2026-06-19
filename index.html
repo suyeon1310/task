@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>나의 공부 루틴 - 뽀모도로 타이머</title>
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="뽀모도로 기법을 이용한 몰입 집중 타이머와 오늘 하루 공부한 시간을 체계적으로 기록해 주는 웹 서비스입니다.">
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="./style.css">
+  
+  <!-- Emojis as Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>">
+
+  <!-- React 18 & ReactDOM 18 UMD Builds (Using reliable jsDelivr CDN and omitting crossorigin for local file:// compatibility) -->
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <!-- Babel Standalone to compile JSX in browser -->
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.20/babel.min.js"></script>
+</head>
+<body class="theme-focus">
+  <div id="root"></div>
+
+  <!-- React Code with Babel compiling -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- Safe Storage Wrapper to prevent file:// protocol security crashes ---
+    const safeStorage = {
+      fallbackStore: {},
+      getItem: (key) => {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          console.warn("localStorage is restricted or unavailable. Using in-memory store instead.", e);
+          return safeStorage.fallbackStore[key] || null;
+        }
+      },
+      setItem: (key, value) => {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          console.warn("localStorage is restricted or unavailable. Using in-memory store instead.", e);
+          safeStorage.fallbackStore[key] = value;
+        }
+      }
+    };
+
+    // --- Date Formatting Helper ---
+    const getTodayDateString = () => {
+      const d = new Date();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    // --- Header Component ---
+    const Header = ({ mode }) => {
+      const today = new Date();
+      const formattedDate = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+      
+      return (
+        <header>
+          <h1>나의 공부 루틴</h1>
+          <p>{formattedDate} • {mode === 'focus' ? '집중하는 시간 🎯' : '달콤한 휴식 ☕'}</p>
+        </header>
+      );
+    };
+
+    // --- Timer Component ---
+    const Timer = ({ 
+      timerSeconds, 
+      isRunning, 
+      mode, 
+      startTimer, 
+      pauseTimer, 
+      resetTimer, 
+      switchMode,
+      soundEnabled,
+      setSoundEnabled,
+      notifyEnabled,
+      toggleNotifications,
+      initAudio
+    }) => {
+      const totalDuration = mode === 'focus' ? 25 * 60 : 5 * 60;
+      const progressCircumference = 691.15; // 2 * Math.PI * 110 (radius)
+      
+      // Calculate countdown dashoffset
+      const dashoffset = progressCircumference * (1 - timerSeconds / totalDuration);
+      
+      const minutes = String(Math.floor(timerSeconds / 60)).padStart(2, '0');
+      const seconds = String(timerSeconds % 60).padStart(2, '0');
+
+      const handleStartClick = () => {
+        initAudio();
+        startTimer();
+      };
+
+      const handlePauseClick = () => {
+        initAudio();
+        pauseTimer();
+      };
+
+      const handleResetClick = () => {
+        initAudio();
+        resetTimer();
+      };
+
+      const handleModeChange = (newMode) => {
+        initAudio();
+        switchMode(newMode);
+      };
+
+      return (
+        <div className="glass-panel timer-panel">
+          {/* Mode Switcher */}
+          <div className="mode-indicator">
+            <button 
+              className={`mode-btn ${mode === 'focus' ? 'active' : ''}`}
+              onClick={() => handleModeChange('focus')}
+            >
+              집중 모드 (25m)
+            </button>
+            <button 
+              className={`mode-btn ${mode === 'break' ? 'active' : ''}`}
+              onClick={() => handleModeChange('break')}
+            >
+              휴식 모드 (5m)
+            </button>
+          </div>
+
+          {/* SVG Progress Circle */}
+          <div className="timer-circle-container">
+            <svg className="timer-svg" viewBox="0 0 250 250">
+              <defs>
+                <linearGradient id="timerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  {mode === 'focus' ? (
+                    <React.Fragment>
+                      <stop offset="0%" stopColor="#ff5e62" />
+                      <stop offset="100%" stopColor="#ff9966" />
+                    </React.Fragment>
+                  ) : (
+                    <React.Fragment>
+                      <stop offset="0%" stopColor="#11998e" />
+                      <stop offset="100%" stopColor="#38ef7d" />
+                    </React.Fragment>
+                  )}
+                </linearGradient>
+              </defs>
+              <circle className="timer-track" cx="125" cy="125" r="110" />
+              <circle 
+                className="timer-progress" 
+                cx="125" 
+                cy="125" 
+                r="110" 
+                strokeDasharray={progressCircumference}
+                strokeDashoffset={dashoffset}
+              />
+            </svg>
+            <div className="timer-display">
+              <div className="time-numbers">{minutes}:{seconds}</div>
+              <div className="time-label">{mode === 'focus' ? 'Focus' : 'Break'}</div>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="timer-controls">
+            <button 
+              className="btn-secondary" 
+              onClick={handleResetClick} 
+              title="초기화"
+              id="reset-timer-btn"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <polyline points="3 3 3 8 8 8"/>
+              </svg>
+            </button>
+            
+            {isRunning ? (
+              <button 
+                className="btn-primary pulse-glow" 
+                onClick={handlePauseClick} 
+                title="일시정지"
+                id="pause-timer-btn"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                </svg>
+              </button>
+            ) : (
+              <button 
+                className="btn-primary" 
+                onClick={handleStartClick} 
+                title="시작"
+                id="start-timer-btn"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+              </button>
+            )}
+
+            <button 
+              className={`btn-secondary ${soundEnabled ? 'active' : ''}`} 
+              onClick={() => { initAudio(); setSoundEnabled(!soundEnabled); }}
+              title={soundEnabled ? "소리 끄기" : "소리 켜기"}
+              id="toggle-sound-btn"
+            >
+              {soundEnabled ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <line x1="23" y1="9" x2="17" y2="15"/>
+                  <line x1="17" y1="9" x2="23" y2="15"/>
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    // --- Stats Component ---
+    const Stats = ({ stats }) => {
+      // Generate badges based on completion count
+      const badgeStamps = [];
+      for (let i = 0; i < stats.count; i++) {
+        badgeStamps.push(
+          <div key={i} className="badge-stamp" title={`${i + 1}번째 완료!`}>
+            🔥
+          </div>
+        );
+      }
+
+      // Convert total study minutes into hours and minutes
+      const hours = Math.floor(stats.totalMinutes / 60);
+      const minutes = stats.totalMinutes % 60;
+      const formattedTime = hours > 0 
+        ? `${hours}시간 ${minutes}분` 
+        : `${minutes}분`;
+
+      return (
+        <div className="glass-panel stats-panel">
+          <div className="stat-card">
+            <span className="stat-icon">🎯</span>
+            <span className="stat-value" id="stats-count-value">{stats.count}회</span>
+            <span className="stat-label">완료 횟수</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-icon">⏱️</span>
+            <span className="stat-value" id="stats-time-value">{formattedTime}</span>
+            <span className="stat-label">누적 공부 시간</span>
+          </div>
+
+          {stats.count > 0 && (
+            <div className="badges-container">
+              {badgeStamps}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // --- History Component ---
+    const History = ({ history, clearHistory }) => {
+      const handleClear = () => {
+        if (confirm("공부 기록을 모두 지우시겠습니까?")) {
+          clearHistory();
+        }
+      };
+
+      return (
+        <div className="glass-panel history-panel">
+          <div className="history-header">
+            <span>지난 공부 기록</span>
+            {history.length > 0 && (
+              <button 
+                className="clear-history-btn" 
+                onClick={handleClear}
+                id="clear-history-btn"
+              >
+                모두 지우기
+              </button>
+            )}
+          </div>
+          <div className="history-list">
+            {history.length === 0 ? (
+              <div className="empty-history">아직 기록된 역사가 없습니다.</div>
+            ) : (
+              history.map((item, idx) => {
+                const hours = Math.floor(item.totalMinutes / 60);
+                const minutes = item.totalMinutes % 60;
+                const formattedTime = hours > 0 
+                  ? `${hours}시간 ${minutes}분` 
+                  : `${minutes}분`;
+                
+                // Format date string from YYYY-MM-DD to MM/DD
+                const parts = item.date.split('-');
+                const displayDate = parts.length === 3 ? `${parts[1]}/${parts[2]}` : item.date;
+
+                return (
+                  <div key={idx} className="history-item">
+                    <span className="history-date">{displayDate}</span>
+                    <div className="history-stats">
+                      <span>{item.count}회 완료</span>
+                      <span>•</span>
+                      <span>{formattedTime}</span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    // --- Main App Component ---
+    const App = () => {
+      const [timerSeconds, setTimerSeconds] = useState(25 * 60);
+      const [isRunning, setIsRunning] = useState(false);
+      const [mode, setMode] = useState('focus'); // 'focus' | 'break'
+      const [soundEnabled, setSoundEnabled] = useState(true);
+      const [notifyEnabled, setNotifyEnabled] = useState(false);
+
+      // Load initial stats using safeStorage
+      const [stats, setStats] = useState(() => {
+        const saved = safeStorage.getItem('my_study_routine_stats');
+        const today = getTodayDateString();
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (parsed.date === today) {
+              return parsed;
+            }
+          } catch(e) {
+            console.error("Failed to parse stats local storage", e);
+          }
+        }
+        return { date: today, count: 0, totalMinutes: 0 };
+      });
+
+      // Load initial history using safeStorage
+      const [history, setHistory] = useState(() => {
+        const saved = safeStorage.getItem('my_study_routine_history');
+        if (saved) {
+          try {
+            return JSON.parse(saved);
+          } catch(e) {
+            console.error("Failed to parse history local storage", e);
+          }
+        }
+        return [];
+      });
+
+      const workerRef = useRef(null);
+      const endTimeRef = useRef(null);
+      const audioCtxRef = useRef(null);
+      const handleTickRef = useRef();
+
+      // Sync stats and history to safeStorage
+      useEffect(() => {
+        safeStorage.setItem('my_study_routine_stats', JSON.stringify(stats));
+      }, [stats]);
+
+      useEffect(() => {
+        safeStorage.setItem('my_study_routine_history', JSON.stringify(history));
+      }, [history]);
+
+      // Set class on body for ambient background gradient transition
+      useEffect(() => {
+        document.body.className = mode === 'focus' ? 'theme-focus' : 'theme-break';
+      }, [mode]);
+
+      // Check for midnight transitions
+      const checkDayTransition = () => {
+        const today = getTodayDateString();
+        if (stats.date !== today) {
+          // If there is work completed, archive it in history
+          if (stats.count > 0) {
+            setHistory(prev => {
+              if (!prev.some(item => item.date === stats.date)) {
+                return [stats, ...prev].slice(0, 14); // Keep last 14 records
+              }
+              return prev;
+            });
+          }
+          // Reset today's stats
+          setStats({ date: today, count: 0, totalMinutes: 0 });
+        }
+      };
+
+      // Check day transition on startup and hourly
+      useEffect(() => {
+        checkDayTransition();
+        const interval = setInterval(checkDayTransition, 60000 * 30); // check every 30 mins
+        return () => clearInterval(interval);
+      }, [stats]);
+
+      // Update Browser Tab Title
+      useEffect(() => {
+        const minStr = String(Math.floor(timerSeconds / 60)).padStart(2, '0');
+        const secStr = String(timerSeconds % 60).padStart(2, '0');
+        const modeLabel = mode === 'focus' ? '집중' : '휴식';
+        
+        if (isRunning) {
+          document.title = `(${minStr}:${secStr}) ${modeLabel} - 나의 공부 루틴`;
+        } else {
+          document.title = '나의 공부 루틴 - 뽀모도로 타이머';
+        }
+      }, [timerSeconds, isRunning, mode]);
+
+      // Initialize Web Audio Context
+      const initAudio = () => {
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtxRef.current.state === 'suspended') {
+          audioCtxRef.current.resume();
+        }
+      };
+
+      // Play a custom synthesized tone (chime)
+      const playNote = (audioCtx, frequency, startTime, duration) => {
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(frequency, startTime);
+        
+        gainNode.gain.setValueAtTime(0, startTime);
+        gainNode.gain.linearRampToValueAtTime(0.25, startTime + 0.05); // Smooth fade-in
+        gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration); // Smooth fade-out
+        
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
+
+      const playChime = (type) => {
+        if (!soundEnabled) return;
+        try {
+          initAudio();
+          const ctx = audioCtxRef.current;
+          if (!ctx) return;
+
+          const now = ctx.currentTime;
+          if (type === 'focusComplete') {
+            playNote(ctx, 523.25, now, 0.2);
+            playNote(ctx, 659.25, now + 0.15, 0.2);
+            playNote(ctx, 783.99, now + 0.30, 0.2);
+            playNote(ctx, 1046.50, now + 0.45, 0.6);
+          } else if (type === 'breakComplete') {
+            playNote(ctx, 880.00, now, 0.25);
+            playNote(ctx, 698.46, now + 0.20, 0.25);
+            playNote(ctx, 587.33, now + 0.40, 0.6);
+          }
+        } catch (e) {
+          console.error("Synthesizer error: could not play audio chime", e);
+        }
+      };
+
+      // Browser Desktop Notification Helper
+      const sendNotification = (title, body) => {
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(title, {
+            body,
+            icon: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🔥</text></svg>'
+          });
+        }
+      };
+
+      const toggleNotifications = () => {
+        if (!('Notification' in window)) {
+          alert("이 브라우저는 데스크톱 알림을 지원하지 않습니다.");
+          return;
+        }
+
+        if (Notification.permission === 'default') {
+          Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+              setNotifyEnabled(true);
+              sendNotification("알림이 활성화되었습니다! 🔔", "뽀모도로 세션 완료 시 알려드립니다.");
+            }
+          });
+        } else if (Notification.permission === 'granted') {
+          setNotifyEnabled(!notifyEnabled);
+        } else {
+          alert("브라우저 설정에서 이 사이트의 알림 권한을 허용해 주셔야 알림을 받을 수 있습니다.");
+        }
+      };
+
+      // On permission state update
+      useEffect(() => {
+        if ('Notification' in window) {
+          if (Notification.permission === 'granted') {
+            setNotifyEnabled(true);
+          }
+        }
+      }, []);
+
+      // Timer Tick Handler
+      const handleTick = () => {
+        checkDayTransition();
+        if (!endTimeRef.current) return;
+
+        const diff = endTimeRef.current - Date.now();
+        const secondsLeft = Math.max(0, Math.round(diff / 1000));
+        
+        setTimerSeconds(secondsLeft);
+
+        if (secondsLeft <= 0) {
+          handleTimerCompletion();
+        }
+      };
+
+      // Update the Tick Callback Ref so the Web Worker/Interval always executes the latest state logic
+      useEffect(() => {
+        handleTickRef.current = handleTick;
+      });
+
+      // Initialize Web Worker with main-thread fallback for file:// protocol compatibility
+      useEffect(() => {
+        let worker;
+        try {
+          const workerCode = `
+            let timerId = null;
+            self.onmessage = function(e) {
+              if (e.data === 'start') {
+                if (timerId) clearInterval(timerId);
+                timerId = setInterval(() => {
+                  self.postMessage('tick');
+                }, 1000);
+              } else if (e.data === 'stop') {
+                if (timerId) clearInterval(timerId);
+                timerId = null;
+              }
+            };
+          `;
+          const blob = new Blob([workerCode], { type: 'application/javascript' });
+          const workerUrl = URL.createObjectURL(blob);
+          worker = new Worker(workerUrl);
+
+          worker.onmessage = (e) => {
+            if (e.data === 'tick' && handleTickRef.current) {
+              handleTickRef.current();
+            }
+          };
+          console.log("Web Worker spawned successfully.");
+        } catch (e) {
+          console.warn("Failed to create Web Worker (expected in local file:// Chrome security sandbox). Using main thread fallback.", e);
+          // Mock worker that uses standard main-thread setInterval
+          worker = {
+            postMessage: (msg) => {
+              if (msg === 'start') {
+                if (window.mainThreadTimer) clearInterval(window.mainThreadTimer);
+                window.mainThreadTimer = setInterval(() => {
+                  if (handleTickRef.current) handleTickRef.current();
+                }, 1000);
+              } else if (msg === 'stop') {
+                if (window.mainThreadTimer) {
+                  clearInterval(window.mainThreadTimer);
+                  window.mainThreadTimer = null;
+                }
+              }
+            },
+            terminate: () => {
+              if (window.mainThreadTimer) {
+                clearInterval(window.mainThreadTimer);
+                window.mainThreadTimer = null;
+              }
+            }
+          };
+        }
+
+        workerRef.current = worker;
+
+        return () => {
+          if (worker.terminate) {
+            worker.terminate();
+          } else {
+            worker.postMessage('stop');
+          }
+        };
+      }, []);
+
+      // Start/Resume Timer
+      const startTimer = (overrideSeconds) => {
+        const secondsToRun = overrideSeconds !== undefined ? overrideSeconds : timerSeconds;
+        
+        const now = Date.now();
+        endTimeRef.current = now + secondsToRun * 1000;
+        
+        setIsRunning(true);
+        if (workerRef.current) {
+          workerRef.current.postMessage('start');
+        }
+      };
+
+      // Pause Timer
+      const pauseTimer = () => {
+        if (workerRef.current) {
+          workerRef.current.postMessage('stop');
+        }
+        setIsRunning(false);
+        
+        if (endTimeRef.current) {
+          const remaining = Math.max(0, Math.round((endTimeRef.current - Date.now()) / 1000));
+          setTimerSeconds(remaining);
+        }
+        endTimeRef.current = null;
+      };
+
+      // Reset Timer
+      const resetTimer = () => {
+        if (workerRef.current) {
+          workerRef.current.postMessage('stop');
+        }
+        setIsRunning(false);
+        endTimeRef.current = null;
+        
+        const defaultDuration = mode === 'focus' ? 25 * 60 : 5 * 60;
+        setTimerSeconds(defaultDuration);
+      };
+
+      // Switch Modes manually
+      const switchMode = (newMode) => {
+        if (workerRef.current) {
+          workerRef.current.postMessage('stop');
+        }
+        setIsRunning(false);
+        endTimeRef.current = null;
+        
+        setMode(newMode);
+        const duration = newMode === 'focus' ? 25 * 60 : 5 * 60;
+        setTimerSeconds(duration);
+      };
+
+      // Complete session and handle transitions
+      const handleTimerCompletion = () => {
+        if (workerRef.current) {
+          workerRef.current.postMessage('stop');
+        }
+        setIsRunning(false);
+        endTimeRef.current = null;
+
+        if (mode === 'focus') {
+          // Increment completed sessions and add 25 mins
+          setStats(prev => ({
+            ...prev,
+            count: prev.count + 1,
+            totalMinutes: prev.totalMinutes + 25
+          }));
+
+          playChime('focusComplete');
+          sendNotification("집중 끝! 5분 휴식 시작 ☕", "정말 수고하셨습니다. 이제 5분 동안 머리를 편히 식히세요!");
+
+          // Automatically switch to Break Mode
+          setMode('break');
+          const breakSec = 5 * 60;
+          setTimerSeconds(breakSec);
+          
+          // Auto-start Break Timer after a brief delay
+          setTimeout(() => {
+            startTimer(breakSec);
+          }, 1000);
+        } else {
+          // Break Completed
+          playChime('breakComplete');
+          sendNotification("휴식 끝! 다시 집중해볼까요? 🔥", "휴식 시간 5분이 끝났습니다. 다음 세션을 시작하겠습니다!");
+
+          // Automatically switch back to Focus Mode
+          setMode('focus');
+          const focusSec = 25 * 60;
+          setTimerSeconds(focusSec);
+
+          // Auto-start Focus Timer after a brief delay
+          setTimeout(() => {
+            startTimer(focusSec);
+          }, 1000);
+        }
+      };
+
+      // Clear all stats & history
+      const clearHistory = () => {
+        const today = getTodayDateString();
+        setStats({ date: today, count: 0, totalMinutes: 0 });
+        setHistory([]);
+      };
+
+      return (
+        <div className="app-container">
+          <Header mode={mode} />
+          
+          <Timer 
+            timerSeconds={timerSeconds}
+            isRunning={isRunning}
+            mode={mode}
+            startTimer={startTimer}
+            pauseTimer={pauseTimer}
+            resetTimer={resetTimer}
+            switchMode={switchMode}
+            soundEnabled={soundEnabled}
+            setSoundEnabled={setSoundEnabled}
+            notifyEnabled={notifyEnabled}
+            toggleNotifications={toggleNotifications}
+            initAudio={initAudio}
+          />
+
+          <Stats stats={stats} />
+
+          <History history={history} clearHistory={clearHistory} />
+
+          {/* Desktop notification opt-in button */}
+          <div className="settings-bar">
+            <button 
+              className={`settings-btn ${notifyEnabled ? 'active' : ''}`}
+              onClick={toggleNotifications}
+              id="notify-permission-btn"
+            >
+              {notifyEnabled ? (
+                <React.Fragment>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                  </svg>
+                  <span>알림 활성화됨</span>
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                    <path d="M18.63 13A17.89 17.89 0 0 1 18 8"/>
+                    <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/>
+                    <path d="M18 8a6 6 0 0 0-9.33-5M1 1l22 22"/>
+                  </svg>
+                  <span>바탕화면 알림 켜기</span>
+                </React.Fragment>
+              )}
+            </button>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>v1.0.1</span>
+          </div>
+        </div>
+      );
+    };
+
+    // Render Root App
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
